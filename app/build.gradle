@@ -2,8 +2,7 @@ apply plugin: 'com.android.application'
 apply plugin: 'kotlin-android'
 
 android {
-
-    compileSdkVersion 31
+    compileSdk = 34
 
     buildFeatures {
         viewBinding = true
@@ -11,8 +10,9 @@ android {
 
     defaultConfig {
         applicationId "com.twiceyuan.wxapk"
-        minSdkVersion 16
-        targetSdkVersion 31
+        minSdk = 21
+        targetSdk = 34
+        namespace = "com.twiceyuan.wxapk"
         versionCode getAppVersionCode()
         versionName getLastTagName()
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
@@ -20,11 +20,18 @@ android {
 
     signingConfigs {
         release {
-            String keystore = System.env.WXAPK_KEYSTORE
-            storeFile file(keystore == null ? "/dev/null" : keystore)
-            storePassword System.env.WXAPK_KEYSTORE_PASSWD
-            keyAlias System.env.WXAPK_KEY_ALIAS
-            keyPassword System.env.WXAPK_KEY_PASSWD
+            if (System.getenv("CI") != null) {
+                storeFile file(System.env.TWICEYUAN_KEYSTORE)
+                storePassword System.env.TWICEYUAN_KEYSTORE_PASSWD
+                keyAlias System.env.TWICEYUAN_KEY_ALIAS
+                keyPassword System.env.TWICEYUAN_KEY_PASSWD
+            } else {
+                String keystore = System.env.WXAPK_KEYSTORE
+                storeFile file(keystore == null ? "/dev/null" : keystore)
+                storePassword System.env.WXAPK_KEYSTORE_PASSWD
+                keyAlias System.env.WXAPK_KEY_ALIAS
+                keyPassword System.env.WXAPK_KEY_PASSWD
+            }
         }
     }
 
@@ -34,30 +41,39 @@ android {
         }
         release {
             minifyEnabled true
+            shrinkResources true
             signingConfig signingConfigs.release
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }
     }
 
-    applicationVariants.all { variant ->
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    applicationVariants.configureEach { variant ->
         if (variant.buildType.name != "release") return
         outputs.forEach {
             def buildTypeName = variant.buildType.name
-            def version = "$versionName($versionCode)"
+            def version = "$versionName-$versionCode"
             it.outputFileName = "WXAPK-${version}-${buildTypeName}.apk"
+        }
+    }
+
+    sourceSets.configureEach {
+        languageSettings {
+            languageVersion = "2.0"
         }
     }
 }
 
-// 根据应用提交记录数来生成版本号
+// 根据 runner action 编号生成版本号
 def getAppVersionCode() {
-    def stdout = new ByteArrayOutputStream()
-    exec {
-        commandLine 'git', 'tag', '--list'
-        standardOutput = stdout
-    }
-    // 后面 + 的数字为临时发版没有打 tag 的版本。尽量避免这种情况
-    return stdout.toString().split("\n").size() + 1
+    def properties = new Properties()
+    properties.load(new FileInputStream(rootProject.file("local.properties")))
+    def version = properties.getProperty("GITHUB_RUN_NUMBER") ?: System.getenv("GITHUB_RUN_NUMBER")
+    return version != null ? version.toInteger() : 1
 }
 
 // 获取最新的 tag 名称
@@ -70,13 +86,14 @@ def getLastTagName() {
     return stdout.toString().trim()
 }
 
-task printVersionInfo {
+tasks.register('printVersionInfo') {
     doLast {
         println "VersionName: ${getLastTagName()}, VersionCode: ${getAppVersionCode()}"
     }
 }
 
 dependencies {
-    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
-    implementation 'androidx.legacy:legacy-support-v4:1.0.0'
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
+    implementation 'androidx.documentfile:documentfile:1.0.1'
+    implementation 'androidx.activity:activity-ktx:1.9.1'
 }
